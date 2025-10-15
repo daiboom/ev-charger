@@ -65,8 +65,8 @@ impl ChargingScreen {
         
         match self.charge_type {
             ChargeType::SpecificWatts(target_watts) => {
-                // 특정 와트 충전 시뮬레이션
-                let total_charge_time = Duration::from_secs_f32(target_watts * 6.0); // 1kW당 6초
+                // Specific watts charging simulation
+                let total_charge_time = Duration::from_secs_f32(target_watts * 6.0); // 6 seconds per 1kW
                 self.current_battery_level = (elapsed.as_secs_f32() / total_charge_time.as_secs_f32()).min(1.0);
                 self.charging_power = target_watts;
                 
@@ -79,10 +79,10 @@ impl ChargingScreen {
                 }
             }
             ChargeType::Percent(target_percent) => {
-                // 퍼센트 충전 시뮬레이션
-                let total_charge_time = Duration::from_secs_f32(target_percent * 3.0); // 1%당 3초
+                // Percent charging simulation
+                let total_charge_time = Duration::from_secs_f32(target_percent * 3.0); // 3 seconds per 1%
                 self.current_battery_level = (elapsed.as_secs_f32() / total_charge_time.as_secs_f32()).min(1.0);
-                self.charging_power = 50.0; // 고정 전력
+                self.charging_power = 50.0; // Fixed power
                 
                 if self.current_battery_level < 1.0 {
                     let remaining_ratio = 1.0 - self.current_battery_level;
@@ -113,7 +113,7 @@ impl ChargingScreen {
 
         let scale = calculate_scale(ctx);
 
-        show_top_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
         // AppBar 표시
         egui::CentralPanel::default()

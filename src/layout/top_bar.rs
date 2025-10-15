@@ -1,6 +1,7 @@
 use eframe::egui;
+use crate::router::NavigationStack;
 
-pub fn show_top_bar(ctx: &egui::Context, scale: f32) {
+pub fn show_top_bar(ctx: &egui::Context, scale: f32, nav_stack: Option<&NavigationStack>) {
     egui::TopBottomPanel::top("top_bar")
         .frame(egui::Frame::default().fill(egui::Color32::from_rgba_premultiplied(20, 20, 25, 200)))
         .show(ctx, |ui| {
@@ -23,6 +24,15 @@ pub fn show_top_bar(ctx: &egui::Context, scale: f32) {
                         .font(egui::FontId::proportional(12.0 * scale))
                         .color(egui::Color32::from_rgb(120, 220, 120)),
                 );
+                
+                // Navigation stack info (for debugging)
+                if let Some(stack) = nav_stack {
+                    ui.label(
+                        egui::RichText::new(format!("Stack: {}", stack.len()))
+                            .font(egui::FontId::proportional(10.0 * scale))
+                            .color(egui::Color32::from_gray(150)),
+                    );
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let btn = egui::Button::new("Settings").min_size(egui::vec2(100.0 * scale, 14.0 * scale));
                     let _ = ui.add(btn);

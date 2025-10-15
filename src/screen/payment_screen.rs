@@ -82,10 +82,10 @@ impl PaymentScreen {
     }
 
     fn calculate_cost(&self) -> f32 {
-        // 간단한 요금 계산 (kWh당 200원 가정)
+        // Simple cost calculation (assuming 200 won per kWh)
         match self.charge_type {
-            ChargeType::SpecificWatts(watts) => watts * 0.2, // 1kW = 200원
-            ChargeType::Percent(percent) => percent * 0.1,   // 1% = 100원
+            ChargeType::SpecificWatts(watts) => watts * 0.2, // 1kW = 200 won
+            ChargeType::Percent(percent) => percent * 0.1,   // 1% = 100 won
         }
     }
 
@@ -94,7 +94,7 @@ impl PaymentScreen {
 
         let scale = calculate_scale(ctx);
 
-        show_top_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
         // AppBar 표시
         egui::CentralPanel::default()
@@ -217,7 +217,7 @@ impl PaymentScreen {
                             ui.painter().text(
                                 check_pos,
                                 egui::Align2::CENTER_CENTER,
-                                "✓",
+                                "OK",
                                 egui::FontId::proportional(24.0 * scale),
                                 egui::Color32::WHITE,
                             );

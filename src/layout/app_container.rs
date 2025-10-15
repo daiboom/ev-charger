@@ -1,6 +1,6 @@
 use eframe::egui;
 
-/// 화면 스케일링을 위한 유틸리티 함수
+/// Utility function for screen scaling
 pub fn calculate_scale(ctx: &egui::Context) -> f32 {
     let viewport_rect = ctx.screen_rect();
     let vw = viewport_rect.width();

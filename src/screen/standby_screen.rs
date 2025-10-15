@@ -2,7 +2,6 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::top_bar::show_top_bar;
-use crate::layout::app_bar::AppBar;
 use crate::layout::app_container::calculate_scale;
 
 pub struct StandbyScreen {
@@ -16,7 +15,6 @@ pub struct StandbyScreen {
     full_charge_clicked: bool,
     specific_watts_clicked: bool,
     percent_clicked: bool,
-    app_bar: AppBar,
 }
 
 impl StandbyScreen {
@@ -32,7 +30,6 @@ impl StandbyScreen {
             full_charge_clicked: false,
             specific_watts_clicked: false,
             percent_clicked: false,
-            app_bar: AppBar::new("EV Charger"),
         }
     }
 
@@ -101,21 +98,10 @@ impl StandbyScreen {
         self.update_animation();
         self.load_background_image(ctx);
 
-        // Determine responsive scale based on viewport size
         let scale = calculate_scale(ctx);
 
         // Top bar (split)
-        show_top_bar(ctx, scale);
-
-        // AppBar 표시
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                self.app_bar.show(ui, scale);
-            });
-
-        // Bottom bar (split)
-        // show_bottom_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
         // 중앙 콘텐츠
         egui::CentralPanel::default()

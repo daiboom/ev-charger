@@ -35,7 +35,7 @@ impl AppBar {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(15.0 * scale, 0.0);
 
-                    // 뒤로가기 버튼
+                    // Back button
                     if self.show_back_button {
                         let back_btn = egui::Button::new(
                             egui::RichText::new("←")
@@ -61,7 +61,7 @@ impl AppBar {
                         }
                     }
 
-                    // 타이틀
+                    // Title
                     ui.vertical_centered(|ui| {
                         ui.add_space(5.0 * scale);
                         ui.add(egui::Label::new(
@@ -72,7 +72,7 @@ impl AppBar {
                         ui.add_space(5.0 * scale);
                     });
 
-                    // 오른쪽 공간 (균형을 위해)
+                    // Right space (for balance)
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !self.show_back_button {
                             ui.add_space(40.0 * scale);

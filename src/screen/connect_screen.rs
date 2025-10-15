@@ -16,12 +16,12 @@ pub struct ConnectScreen {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionStatus {
-    Waiting,      // 전기차 연결 대기
-    Connecting,   // 전기차 연결 중
-    Verifying,    // 통신 프로토콜 확인 중
-    Finalizing,   // 최종 연결 완료 중
-    Connected,    // 전기차 연결됨
-    Error,        // 연결 오류
+    Waiting,      // Waiting for EV connection
+    Connecting,   // Connecting to EV
+    Verifying,    // Verifying communication protocol
+    Finalizing,   // Finalizing connection
+    Connected,    // EV connected
+    Error,        // Connection error
 }
 
 impl ConnectScreen {
@@ -61,6 +61,10 @@ impl ConnectScreen {
         &self.connection_status
     }
 
+    pub fn is_connection_complete(&self) -> bool {
+        matches!(self.connection_status, ConnectionStatus::Connected)
+    }
+
     fn load_background_image(&mut self, ctx: &egui::Context) {
         if let Some(ref path) = self.background_image_path {
             if self.background_image.is_none() {
@@ -80,68 +84,146 @@ impl ConnectScreen {
     fn update_connection_status(&mut self) {
         let elapsed = self.start_time.elapsed();
         
-        // 실제 EV 충전기 연결 감지 시뮬레이션
+        // Simulate EV charger connection detection
         match self.connection_status {
             ConnectionStatus::Waiting => {
-                // 1단계: 커넥터 감지 (1초)
+                // Step 1: Connector detection (1 second)
                 if elapsed > Duration::from_secs(1) {
                     self.connection_status = ConnectionStatus::Connecting;
                 }
             }
             ConnectionStatus::Connecting => {
-                // 2단계: 전기적 연결 확인 (2초)
+                // Step 2: Electrical connection verification (2 seconds)
                 if elapsed > Duration::from_secs(2) {
                     self.connection_status = ConnectionStatus::Verifying;
                 }
             }
             ConnectionStatus::Verifying => {
-                // 3단계: 통신 프로토콜 확인 (3초)
+                // Step 3: Communication protocol verification (3 seconds)
                 if elapsed > Duration::from_secs(3) {
                     self.connection_status = ConnectionStatus::Finalizing;
                 }
             }
             ConnectionStatus::Finalizing => {
-                // 4단계: 최종 연결 완료 (5초)
+                // Step 4: Final connection completion (5 seconds)
                 if elapsed > Duration::from_secs(5) {
                     self.connection_status = ConnectionStatus::Connected;
                 }
             }
             ConnectionStatus::Connected => {
-                // 연결 유지 상태 - 실제로는 지속적인 모니터링
+                // Connection maintained - continuous monitoring in real implementation
             }
             ConnectionStatus::Error => {
-                // 오류 상태 - 재시도 로직 필요
+                // Error state - retry logic needed
             }
         }
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
         let scale = calculate_scale(ctx);
+        
+        // Update connection status
+        self.update_connection_status();
 
-        show_top_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
-        // AppBar 표시
+        // AppBar display
         // egui::CentralPanel::default()
         //     .frame(egui::Frame::NONE)
         //     .show(ctx, |ui| {
         //         self.app_bar.show(ui, scale);
         //     });
 
-        // 메인 콘텐츠 - "Connect Your Car" 텍스트를 가로 세로 정중앙에 배치
+        // Main content - display different UI based on connection status
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-                // 화면 중앙에 정확히 배치하기 위한 레이아웃
+                // Layout for precise center alignment
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    // 세로 중앙 정렬을 위한 공간
-                    ui.add_space(ui.available_height() / 2.0 - 20.0 * scale);
+                    // Space for vertical center alignment
+                    ui.add_space(ui.available_height() / 2.0 - 40.0 * scale);
                     
-                    // 텍스트 추가
-                    ui.add(egui::Label::new(
-                        egui::RichText::new("Connect Your Car")
-                            .font(egui::FontId::proportional(32.0 * scale))
-                            .color(egui::Color32::WHITE),
-                    ));
+                    // Display message based on connection status
+                    match self.connection_status {
+                        ConnectionStatus::Waiting => {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Connect Your Car")
+                                    .font(egui::FontId::proportional(32.0 * scale))
+                                    .color(egui::Color32::WHITE),
+                            ));
+                            ui.add_space(10.0 * scale);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Please connect the charging cable")
+                                    .font(egui::FontId::proportional(18.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(200, 200, 200, 255)),
+                            ));
+                        }
+                        ConnectionStatus::Connecting => {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Connecting...")
+                                    .font(egui::FontId::proportional(32.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(100, 200, 255, 255)),
+                            ));
+                            ui.add_space(10.0 * scale);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Detecting vehicle connection")
+                                    .font(egui::FontId::proportional(18.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(200, 200, 200, 255)),
+                            ));
+                        }
+                        ConnectionStatus::Verifying => {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Verifying...")
+                                    .font(egui::FontId::proportional(32.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(255, 200, 100, 255)),
+                            ));
+                            ui.add_space(10.0 * scale);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Checking electrical connection")
+                                    .font(egui::FontId::proportional(18.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(200, 200, 200, 255)),
+                            ));
+                        }
+                        ConnectionStatus::Finalizing => {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Finalizing...")
+                                    .font(egui::FontId::proportional(32.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(255, 150, 100, 255)),
+                            ));
+                            ui.add_space(10.0 * scale);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Establishing communication protocol")
+                                    .font(egui::FontId::proportional(18.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(200, 200, 200, 255)),
+                            ));
+                        }
+                        ConnectionStatus::Connected => {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Connected!")
+                                    .font(egui::FontId::proportional(32.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(100, 255, 100, 255)),
+                            ));
+                            ui.add_space(10.0 * scale);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Vehicle ready for charging")
+                                    .font(egui::FontId::proportional(18.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(200, 200, 200, 255)),
+                            ));
+                        }
+                        ConnectionStatus::Error => {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Connection Error")
+                                    .font(egui::FontId::proportional(32.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(255, 100, 100, 255)),
+                            ));
+                            ui.add_space(10.0 * scale);
+                            ui.add(egui::Label::new(
+                                egui::RichText::new("Please check the connection")
+                                    .font(egui::FontId::proportional(18.0 * scale))
+                                    .color(egui::Color32::from_rgba_premultiplied(200, 200, 200, 255)),
+                            ));
+                        }
+                    }
                 });
             });
     }

@@ -95,7 +95,7 @@ impl SelectAmountScreen {
 
         let scale = calculate_scale(ctx);
 
-        show_top_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
        
         egui::CentralPanel::default()

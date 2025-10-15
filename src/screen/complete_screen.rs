@@ -77,7 +77,7 @@ impl CompleteScreen {
 
         let scale = calculate_scale(ctx);
 
-        show_top_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
         // AppBar 표시
         egui::CentralPanel::default()
@@ -112,7 +112,7 @@ impl CompleteScreen {
 
                     // 완료 아이콘
                     ui.add(egui::Label::new(
-                        egui::RichText::new("✅")
+                        egui::RichText::new("✅ Complete")
                             .font(egui::FontId::proportional(48.0 * scale))
                             .color(egui::Color32::from_rgb(100, 255, 100)),
                     ));

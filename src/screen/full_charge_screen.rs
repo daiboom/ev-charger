@@ -86,7 +86,7 @@ impl FullChargeScreen {
 
         let scale = calculate_scale(ctx);
 
-        show_top_bar(ctx, scale);
+        show_top_bar(ctx, scale, None);
 
         // AppBar 표시
         egui::CentralPanel::default()
