@@ -12,6 +12,8 @@ pub struct StandbyScreen {
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
     full_charge_clicked: bool,
+    specific_watts_clicked: bool,
+    percent_clicked: bool,
 }
 
 impl StandbyScreen {
@@ -25,6 +27,8 @@ impl StandbyScreen {
             background_image_path: None,
             background_image: None,
             full_charge_clicked: false,
+            specific_watts_clicked: false,
+            percent_clicked: false,
         }
     }
 
@@ -71,6 +75,22 @@ impl StandbyScreen {
 
     pub fn reset_full_charge_clicked(&mut self) {
         self.full_charge_clicked = false;
+    }
+
+    pub fn is_specific_watts_clicked(&self) -> bool {
+        self.specific_watts_clicked
+    }
+
+    pub fn reset_specific_watts_clicked(&mut self) {
+        self.specific_watts_clicked = false;
+    }
+
+    pub fn is_percent_clicked(&self) -> bool {
+        self.percent_clicked
+    }
+
+    pub fn reset_percent_clicked(&mut self) {
+        self.percent_clicked = false;
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
@@ -142,6 +162,7 @@ impl StandbyScreen {
                             }
                             if resp_spec.clicked() {
                                 println!("Selected: charge specific watts");
+                                self.specific_watts_clicked = true;
                             }
 
                             ui.add_space(10.0 * scale);
@@ -168,6 +189,7 @@ impl StandbyScreen {
                             }
                             if resp_pct.clicked() {
                                 println!("Selected: charge by percent");
+                                self.percent_clicked = true;
                             }
 
                             ui.add_space(10.0 * scale);
