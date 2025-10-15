@@ -11,6 +11,7 @@ pub struct StandbyScreen {
     instruction_alpha: f32,
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
+    full_charge_clicked: bool,
 }
 
 impl StandbyScreen {
@@ -19,10 +20,11 @@ impl StandbyScreen {
             start_time: Instant::now(),
             animation_offset: 0.0,
             pulse_scale: 1.0,
-            show_instructions: false,
-            instruction_alpha: 0.0,
+            show_instructions: true, // Always show instructions/buttons
+            instruction_alpha: 1.0,  // Always fully opaque
             background_image_path: None,
             background_image: None,
+            full_charge_clicked: false,
         }
     }
 
@@ -61,6 +63,14 @@ impl StandbyScreen {
         // 항상 버튼 표시 (대기 없이)
         self.show_instructions = true;
         self.instruction_alpha = 1.0;
+    }
+
+    pub fn is_full_charge_clicked(&self) -> bool {
+        self.full_charge_clicked
+    }
+
+    pub fn reset_full_charge_clicked(&mut self) {
+        self.full_charge_clicked = false;
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
@@ -184,6 +194,7 @@ impl StandbyScreen {
                             }
                             if resp_full.clicked() {
                                 println!("Selected: full charge");
+                                self.full_charge_clicked = true;
                             }
                         });
                     });
