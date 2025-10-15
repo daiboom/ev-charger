@@ -2,7 +2,7 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::time::Duration;
 use crate::screen::{
-    SplashScreen, StandbyScreen, FullChargeScreen,
+    SplashScreen, ConnectScreen, StandbyScreen, FullChargeScreen,
     SelectAmountScreen, PaymentScreen, ChargingScreen, CompleteScreen,
     ChargeType, PaymentMethod
 };
@@ -10,6 +10,7 @@ use crate::screen::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
     Splash,
+    Connect(ChargeType),
     Standby,
     FullCharge,
     SelectAmount(ChargeType),
@@ -21,6 +22,7 @@ pub enum AppState {
 pub struct Router {
     pub state: AppState,
     pub splash_screen: SplashScreen,
+    pub connect_screen: ConnectScreen,
     pub standby_screen: StandbyScreen,
     pub full_charge_screen: FullChargeScreen,
     pub select_amount_screen: Option<SelectAmountScreen>,
@@ -33,6 +35,7 @@ impl Router {
     pub fn new() -> Self {
         // 배경 이미지 경로 설정 (선택사항)
         let splash_bg_path = std::path::PathBuf::from("assets/images/splash_bg.jpg");
+        let connect_bg_path = std::path::PathBuf::from("assets/images/connect_bg.jpg");
         let standby_bg_path = std::path::PathBuf::from("assets/images/standby_bg.jpg");
         let full_charge_bg_path = std::path::PathBuf::from("assets/images/full_charge_bg.jpg");
         
@@ -42,6 +45,11 @@ impl Router {
                 SplashScreen::new().with_background_image(splash_bg_path)
             } else {
                 SplashScreen::new()
+            },
+            connect_screen: if connect_bg_path.exists() {
+                ConnectScreen::new().with_background_image(connect_bg_path)
+            } else {
+                ConnectScreen::new()
             },
             standby_screen: if standby_bg_path.exists() {
                 StandbyScreen::new().with_background_image(standby_bg_path)
@@ -66,10 +74,15 @@ impl Router {
             AppState::Splash => {
                 self.splash_screen.show(ctx);
                 
-                // 스플래시가 끝나면 스탠바이 화면으로 전환
+                // 스플래시가 끝나면 연결 화면으로 전환
                 if self.splash_screen.is_finished() {
-                    self.state = AppState::Standby;
+                    self.state = AppState::Connect(ChargeType::SpecificWatts(0.0));
                 }
+            }
+            AppState::Connect(charge_type) => {
+                self.connect_screen.show(ctx);
+                // 연결 화면에서는 자동으로 다음 단계로 진행하거나 뒤로가기 처리
+                // 현재는 단순히 화면만 표시
             }
             AppState::Standby => {
                 self.standby_screen.show(ctx);
@@ -79,17 +92,17 @@ impl Router {
                     self.standby_screen.reset_full_charge_clicked();
                     self.state = AppState::FullCharge;
                 }
-                
-                // 특정 와트 충전 버튼 클릭 시 충전량 선택 화면으로 전환
+                 
+                // 특정 와트 충전 버튼 클릭 시 연결 화면으로 전환
                 if self.standby_screen.is_specific_watts_clicked() {
                     self.standby_screen.reset_specific_watts_clicked();
-                    self.go_to_select_amount(ChargeType::SpecificWatts(0.0));
+                    self.state = AppState::Connect(ChargeType::SpecificWatts(0.0));
                 }
-                
-                // 퍼센트 충전 버튼 클릭 시 충전량 선택 화면으로 전환
+                 
+                // 퍼센트 충전 버튼 클릭 시 연결 화면으로 전환
                 if self.standby_screen.is_percent_clicked() {
                     self.standby_screen.reset_percent_clicked();
-                    self.go_to_select_amount(ChargeType::Percent(0.0));
+                    self.state = AppState::Connect(ChargeType::Percent(0.0));
                 }
             }
             AppState::FullCharge => {

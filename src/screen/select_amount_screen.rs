@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::top_bar::show_top_bar;
 use crate::layout::app_bar::AppBar;
+use crate::layout::app_container::calculate_scale;
 // use crate::layout::stepper::stepper;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,12 +93,7 @@ impl SelectAmountScreen {
     pub fn show(&mut self, ctx: &egui::Context) {
         self.load_background_image(ctx);
 
-        let viewport_rect = ctx.screen_rect();
-        let vw = viewport_rect.width();
-        let vh = viewport_rect.height();
-        let base_w = 800.0;
-        let base_h = 600.0;
-        let scale = (vw / base_w).min(vh / base_h).clamp(0.6, 2.0);
+        let scale = calculate_scale(ctx);
 
         show_top_bar(ctx, scale);
 

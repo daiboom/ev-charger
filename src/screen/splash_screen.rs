@@ -2,6 +2,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::app_bar::AppBar;
+use crate::layout::app_container::calculate_scale;
 
 pub struct SplashScreen {
     start_time: Instant,
@@ -11,7 +12,7 @@ pub struct SplashScreen {
     show_text: bool,
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
-    app_bar: AppBar,
+    // app_bar: AppBar,
 }
 
 impl SplashScreen {
@@ -24,7 +25,7 @@ impl SplashScreen {
             show_text: false,
             background_image_path: None,
             background_image: None,
-            app_bar: AppBar::new("EV Charger"),
+            // app_bar: AppBar::new("EV Charger"),
         }
     }
 
@@ -86,19 +87,7 @@ impl SplashScreen {
         self.update_animation();
         self.load_background_image(ctx);
 
-        let viewport_rect = ctx.screen_rect();
-        let vw = viewport_rect.width();
-        let vh = viewport_rect.height();
-        let base_w = 800.0;
-        let base_h = 600.0;
-        let scale = (vw / base_w).min(vh / base_h).clamp(0.6, 2.0);
-
-        // AppBar 표시
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                self.app_bar.show(ui, scale);
-            });
+        let scale = calculate_scale(ctx);
 
         // 전체 화면을 투명하게 설정
         egui::CentralPanel::default()
