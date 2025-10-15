@@ -2,6 +2,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::top_bar::show_top_bar;
+use crate::layout::app_bar::AppBar;
 // use crate::layout::stepper::stepper;
 use crate::screen::select_amount_screen::ChargeType;
 use crate::screen::payment_screen::PaymentMethod;
@@ -16,6 +17,7 @@ pub struct CompleteScreen {
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
     return_home_clicked: bool,
+    app_bar: AppBar,
 }
 
 impl CompleteScreen {
@@ -36,6 +38,7 @@ impl CompleteScreen {
             background_image_path: None,
             background_image: None,
             return_home_clicked: false,
+            app_bar: AppBar::new("Charging Complete"),
         }
     }
 
@@ -80,14 +83,12 @@ impl CompleteScreen {
 
         show_top_bar(ctx, scale);
 
-        // 스테퍼 표시 (나중에 추가 예정)
-        // egui::TopBottomPanel::top("stepper_panel")
-        //     .frame(egui::Frame::default().fill(egui::Color32::from_rgba_premultiplied(20, 20, 25, 200)))
-        //     .show(ctx, |ui| {
-        //         ui.add_space(10.0 * scale);
-        //         stepper(ui, &["Select Amount", "Payment Method", "Charging", "Complete"], 3, scale);
-        //         ui.add_space(10.0 * scale);
-        //     });
+        // AppBar 표시
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                self.app_bar.show(ui, scale);
+            });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)

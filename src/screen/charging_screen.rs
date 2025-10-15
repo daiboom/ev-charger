@@ -2,6 +2,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::top_bar::show_top_bar;
+use crate::layout::app_bar::AppBar;
 // use crate::layout::stepper::stepper;
 use crate::screen::select_amount_screen::ChargeType;
 use crate::screen::payment_screen::PaymentMethod;
@@ -17,6 +18,7 @@ pub struct ChargingScreen {
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
     is_charging_complete: bool,
+    app_bar: AppBar,
 }
 
 impl ChargingScreen {
@@ -32,6 +34,7 @@ impl ChargingScreen {
             background_image_path: None,
             background_image: None,
             is_charging_complete: false,
+            app_bar: AppBar::new("Charging in Progress").with_back_button(),
         }
     }
 
@@ -95,6 +98,14 @@ impl ChargingScreen {
         self.is_charging_complete
     }
 
+    pub fn is_back_clicked(&self) -> bool {
+        self.app_bar.is_back_clicked()
+    }
+
+    pub fn reset_back_clicked(&mut self) {
+        self.app_bar.reset_back_clicked();
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
         self.update_charging();
         self.load_background_image(ctx);
@@ -108,14 +119,12 @@ impl ChargingScreen {
 
         show_top_bar(ctx, scale);
 
-        // 스테퍼 표시
-        // egui::TopBottomPanel::top("stepper_panel")
-        //     .frame(egui::Frame::default().fill(egui::Color32::from_rgba_premultiplied(20, 20, 25, 200)))
-        //     .show(ctx, |ui| {
-        //         ui.add_space(10.0 * scale);
-        //         stepper(ui, &["Select Amount", "Payment Method", "Charging", "Complete"], 2, scale);
-        //         ui.add_space(10.0 * scale);
-        //     });
+        // AppBar 표시
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                self.app_bar.show(ui, scale);
+            });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -297,6 +306,7 @@ impl ChargingScreen {
                             println!("Proceed to completion summary");
                         }
                     }
+
                 });
             });
 

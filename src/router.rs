@@ -61,7 +61,8 @@ impl Router {
     }
 
     pub fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        match &mut self.state {
+        let current_state = self.state.clone();
+        match current_state {
             AppState::Splash => {
                 self.splash_screen.show(ctx);
                 
@@ -94,9 +95,14 @@ impl Router {
             AppState::FullCharge => {
                 self.full_charge_screen.show(ctx);
                 
+                // 뒤로가기 버튼 클릭 시 스탠바이 화면으로 돌아가기
+                if self.full_charge_screen.is_back_clicked() {
+                    self.full_charge_screen.reset_back_clicked();
+                    self.state = AppState::Standby;
+                }
+                
                 // 충전 완료 시 스탠바이 화면으로 돌아가기
-                if self.full_charge_screen.is_charging_complete() && 
-                   ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                if self.full_charge_screen.is_charging_complete() {
                     self.state = AppState::Standby;
                 }
             }
@@ -109,6 +115,11 @@ impl Router {
                         let amount = screen.get_input_value();
                         self.state = AppState::Payment(charge_type.clone(), amount);
                     }
+                    
+                    if screen.is_back_clicked() {
+                        screen.reset_back_clicked();
+                        self.state = AppState::Standby;
+                    }
                 }
             }
             AppState::Payment(charge_type, amount) => {
@@ -118,8 +129,13 @@ impl Router {
                     if screen.is_proceed_clicked() {
                         screen.reset_proceed_clicked();
                         if let Some(payment_method) = screen.get_selected_payment() {
-                            self.state = AppState::Charging(charge_type.clone(), *amount, payment_method);
+                            self.state = AppState::Charging(charge_type.clone(), amount, payment_method);
                         }
+                    }
+                    
+                    if screen.is_back_clicked() {
+                        screen.reset_back_clicked();
+                        self.state = AppState::SelectAmount(charge_type.clone());
                     }
                 }
             }
@@ -130,17 +146,22 @@ impl Router {
                     if screen.is_charging_complete() {
                         // 충전 완료 시 완료 화면으로 전환
                         let total_cost = match charge_type {
-                            ChargeType::SpecificWatts(watts) => *watts * 0.2,
-                            ChargeType::Percent(percent) => *percent * 0.1,
+                            ChargeType::SpecificWatts(watts) => watts * 0.2,
+                            ChargeType::Percent(percent) => percent * 0.1,
                         };
                         let charging_duration = Duration::from_secs(300); // 5분 시뮬레이션
                         self.state = AppState::Complete(
                             charge_type.clone(),
-                            *amount,
+                            amount,
                             payment_method.clone(),
                             total_cost,
                             charging_duration,
                         );
+                    }
+                    
+                    if screen.is_back_clicked() {
+                        screen.reset_back_clicked();
+                        self.state = AppState::Payment(charge_type.clone(), amount);
                     }
                 }
             }

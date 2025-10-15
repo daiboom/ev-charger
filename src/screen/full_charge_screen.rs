@@ -2,6 +2,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::top_bar::show_top_bar;
+use crate::layout::app_bar::AppBar;
 
 pub struct FullChargeScreen {
     start_time: Instant,
@@ -10,6 +11,7 @@ pub struct FullChargeScreen {
     estimated_time: Duration,
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
+    app_bar: AppBar,
 }
 
 impl FullChargeScreen {
@@ -21,6 +23,7 @@ impl FullChargeScreen {
             estimated_time: Duration::from_secs(0),
             background_image_path: None,
             background_image: None,
+            app_bar: AppBar::new("Full Charge in Progress").with_back_button(),
         }
     }
 
@@ -68,6 +71,14 @@ impl FullChargeScreen {
         self.battery_level >= 1.0
     }
 
+    pub fn is_back_clicked(&self) -> bool {
+        self.app_bar.is_back_clicked()
+    }
+
+    pub fn reset_back_clicked(&mut self) {
+        self.app_bar.reset_back_clicked();
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
         self.update_charging();
         self.load_background_image(ctx);
@@ -80,6 +91,13 @@ impl FullChargeScreen {
         let scale = (vw / base_w).min(vh / base_h).clamp(0.6, 2.0);
 
         show_top_bar(ctx, scale);
+
+        // AppBar 표시
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                self.app_bar.show(ui, scale);
+            });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)

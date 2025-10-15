@@ -2,6 +2,7 @@ use eframe::egui;
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 use crate::layout::top_bar::show_top_bar;
+use crate::layout::app_bar::AppBar;
 // use crate::layout::stepper::stepper;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +18,7 @@ pub struct SelectAmountScreen {
     background_image_path: Option<PathBuf>,
     background_image: Option<egui::TextureHandle>,
     proceed_clicked: bool,
+    app_bar: AppBar,
 }
 
 impl SelectAmountScreen {
@@ -26,6 +28,11 @@ impl SelectAmountScreen {
             ChargeType::Percent(_) => "80".to_string(),
         };
 
+        let title = match charge_type {
+            ChargeType::SpecificWatts(_) => "Select Charging Amount(kW)",
+            ChargeType::Percent(_) => "Select Target Battery Level",
+        };
+
         Self {
             start_time: Instant::now(),
             charge_type,
@@ -33,6 +40,7 @@ impl SelectAmountScreen {
             background_image_path: None,
             background_image: None,
             proceed_clicked: false,
+            app_bar: AppBar::new(title).with_back_button(),
         }
     }
 
@@ -73,6 +81,14 @@ impl SelectAmountScreen {
         self.proceed_clicked = false;
     }
 
+    pub fn is_back_clicked(&self) -> bool {
+        self.app_bar.is_back_clicked()
+    }
+
+    pub fn reset_back_clicked(&mut self) {
+        self.app_bar.reset_back_clicked();
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
         self.load_background_image(ctx);
 
@@ -85,14 +101,12 @@ impl SelectAmountScreen {
 
         show_top_bar(ctx, scale);
 
-        // 스테퍼 표시 (나중에 추가 예정)
-        // egui::TopBottomPanel::top("stepper_panel")
-        //     .frame(egui::Frame::default().fill(egui::Color32::from_rgba_premultiplied(20, 20, 25, 200)))
-        //     .show(ctx, |ui| {
-        //         ui.add_space(10.0 * scale);
-        //         stepper(ui, &["Select Amount", "Payment Method", "Charging", "Complete"], 0, scale);
-        //         ui.add_space(10.0 * scale);
-        //     });
+       
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                self.app_bar.show(ui, scale);
+            });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -244,22 +258,6 @@ impl SelectAmountScreen {
                         self.proceed_clicked = true;
                     }
 
-                    ui.add_space(20.0 * scale);
-
-                    // 뒤로가기 버튼
-                    let back_btn = egui::Button::new(
-                        egui::RichText::new("← Back")
-                            .font(egui::FontId::proportional(16.0 * scale))
-                            .color(egui::Color32::from_gray(200)),
-                    )
-                    .min_size(egui::vec2(120.0 * scale, 35.0 * scale))
-                    .fill(egui::Color32::from_rgba_premultiplied(60, 60, 80, 255))
-                    .corner_radius(egui::CornerRadius::same(8));
-
-                    if ui.add(back_btn).clicked() {
-                        // TODO: 뒤로가기 로직
-                        println!("Back to standby screen");
-                    }
                 });
             });
 
