@@ -1,262 +1,284 @@
 use eframe::egui;
-use std::time::{Duration, Instant};
-use std::path::PathBuf;
-use crate::layout::top_bar::show_top_bar;
-use crate::layout::app_bar::AppBar;
+
+use crate::domain::{ChargeSpeed, ChargeTarget};
+use crate::layout::app_bar::show_app_bar;
 use crate::layout::app_container::calculate_scale;
-// use crate::layout::stepper::stepper;
+use crate::layout::shadow_button::shadow_button;
+use crate::layout::stepper::stepper;
+use crate::screen::standby_screen::{panel_frame, TargetKind};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ChargeType {
-    SpecificWatts(f32),  // 특정 와트로 충전
-    Percent(f32),        // 특정 퍼센트까지 충전
+pub struct AmountDraft {
+    pub kind: TargetKind,
+    pub amount: String,
+    pub speed: ChargeSpeed,
+    pub error: Option<String>,
 }
 
-pub struct SelectAmountScreen {
-    start_time: Instant,
-    charge_type: ChargeType,
-    input_value: String,
-    background_image_path: Option<PathBuf>,
-    background_image: Option<egui::TextureHandle>,
-    proceed_clicked: bool,
-    app_bar: AppBar,
-}
-
-impl SelectAmountScreen {
-    pub fn new(charge_type: ChargeType) -> Self {
-        let initial_value = match charge_type {
-            ChargeType::SpecificWatts(_) => "50".to_string(),
-            ChargeType::Percent(_) => "80".to_string(),
+impl AmountDraft {
+    pub fn new(kind: TargetKind) -> Self {
+        let amount = match kind {
+            TargetKind::Energy => "20".to_string(),
+            TargetKind::Soc => "80".to_string(),
+            TargetKind::Full => String::new(),
         };
-
-        let title = match charge_type {
-            ChargeType::SpecificWatts(_) => "Select Charging Amount(kW)",
-            ChargeType::Percent(_) => "Select Target Battery Level",
-        };
-
         Self {
-            start_time: Instant::now(),
-            charge_type,
-            input_value: initial_value,
-            background_image_path: None,
-            background_image: None,
-            proceed_clicked: false,
-            app_bar: AppBar::new(title).with_back_button(),
+            kind,
+            amount,
+            speed: ChargeSpeed::Normal,
+            error: None,
         }
     }
+}
 
-    pub fn with_background_image(mut self, image_path: PathBuf) -> Self {
-        self.background_image_path = Some(image_path);
-        self
+pub enum SelectAction {
+    None,
+    Back,
+    Proceed(ChargeTarget, ChargeSpeed),
+}
+
+pub fn show(ctx: &egui::Context, draft: &mut AmountDraft) -> SelectAction {
+    let scale = calculate_scale(ctx);
+    let mut action = SelectAction::None;
+    if show_app_bar(ctx, scale, title(draft.kind), true) {
+        action = SelectAction::Back;
     }
 
-    fn load_background_image(&mut self, ctx: &egui::Context) {
-        if let Some(ref path) = self.background_image_path {
-            if self.background_image.is_none() {
-                if let Ok(image_data) = std::fs::read(path) {
-                    if let Ok(image) = image::load_from_memory(&image_data) {
-                        let rgba_image = image.to_rgba8();
-                        let size = [rgba_image.width() as usize, rgba_image.height() as usize];
-                        let pixels = rgba_image.into_raw();
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-                        self.background_image = Some(ctx.load_texture("select_amount_background", color_image, Default::default()));
+    egui::CentralPanel::default()
+        .frame(panel_frame())
+        .show(ctx, |ui| {
+            ui.add_space(8.0 * scale);
+            stepper(
+                ui,
+                &["Amount", "Connect", "Payment", "Charge", "Done"],
+                0,
+                scale,
+            );
+            ui.add_space(16.0 * scale);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new(heading(draft.kind))
+                        .font(egui::FontId::proportional(26.0 * scale))
+                        .color(egui::Color32::WHITE),
+                );
+                ui.add_space(16.0 * scale);
+
+                if draft.kind != TargetKind::Full {
+                    amount_editor(ui, scale, draft);
+                    ui.add_space(12.0 * scale);
+                    presets(ui, scale, draft);
+                    ui.add_space(18.0 * scale);
+                }
+
+                ui.label(
+                    egui::RichText::new("Speed")
+                        .font(egui::FontId::proportional(16.0 * scale))
+                        .color(egui::Color32::from_gray(210)),
+                );
+                ui.add_space(8.0 * scale);
+                speed_row(ui, scale, draft);
+                ui.add_space(12.0 * scale);
+                if let Some(error) = &draft.error {
+                    ui.label(
+                        egui::RichText::new(error)
+                            .color(egui::Color32::from_rgb(255, 140, 140))
+                            .font(egui::FontId::proportional(15.0 * scale)),
+                    );
+                }
+                ui.add_space(16.0 * scale);
+                let response = shadow_button(
+                    ui,
+                    "Continue",
+                    egui::vec2(240.0 * scale, 52.0 * scale),
+                    egui::Color32::from_rgb(20, 150, 110),
+                    egui::Color32::WHITE,
+                    scale,
+                    10.0,
+                );
+                if response.clicked() {
+                    match parse_target(draft.kind, &draft.amount) {
+                        Ok(target) => action = SelectAction::Proceed(target, draft.speed),
+                        Err(error) => draft.error = Some(error),
                     }
                 }
+            });
+        });
+
+    action
+}
+
+pub fn parse_target(kind: TargetKind, amount: &str) -> Result<ChargeTarget, String> {
+    match kind {
+        TargetKind::Full => Ok(ChargeTarget::Full),
+        TargetKind::Energy => {
+            let kwh: f32 = amount
+                .trim()
+                .parse()
+                .map_err(|_| "Enter the energy in kWh.".to_string())?;
+            if kwh.is_finite() && kwh > 0.0 && kwh <= 200.0 {
+                Ok(ChargeTarget::Energy { kwh })
+            } else {
+                Err("Energy must be between 0 and 200 kWh.".to_string())
+            }
+        }
+        TargetKind::Soc => {
+            let percent: f32 = amount
+                .trim()
+                .parse()
+                .map_err(|_| "Enter the target battery percent.".to_string())?;
+            if percent.is_finite() && percent > 0.0 && percent <= 100.0 {
+                Ok(ChargeTarget::Soc { percent })
+            } else {
+                Err("Battery target must be between 0 and 100%.".to_string())
             }
         }
     }
+}
 
-    pub fn get_charge_type(&self) -> ChargeType {
-        self.charge_type.clone()
+fn title(kind: TargetKind) -> &'static str {
+    match kind {
+        TargetKind::Energy => "Energy",
+        TargetKind::Soc => "Battery level",
+        TargetKind::Full => "Full charge",
     }
+}
 
-    pub fn get_input_value(&self) -> f32 {
-        self.input_value.parse().unwrap_or(0.0)
+fn heading(kind: TargetKind) -> &'static str {
+    match kind {
+        TargetKind::Energy => "How much energy?",
+        TargetKind::Soc => "Target battery level",
+        TargetKind::Full => "Charge until full",
     }
+}
 
-    pub fn is_proceed_clicked(&self) -> bool {
-        self.proceed_clicked
+fn amount_editor(ui: &mut egui::Ui, scale: f32, draft: &mut AmountDraft) {
+    ui.horizontal(|ui| {
+        if ui.add(step_button(scale, "−")).clicked() {
+            nudge(draft, -step_of(draft.kind));
+        }
+        let width = 160.0 * scale;
+        ui.add_sized(
+            [width, 48.0 * scale],
+            egui::TextEdit::singleline(&mut draft.amount)
+                .font(egui::FontId::proportional(24.0 * scale))
+                .desired_width(width)
+                .horizontal_align(egui::Align::Center),
+        );
+        if ui.add(step_button(scale, "+")).clicked() {
+            nudge(draft, step_of(draft.kind));
+        }
+        ui.label(
+            egui::RichText::new(unit(draft.kind))
+                .font(egui::FontId::proportional(20.0 * scale))
+                .color(egui::Color32::WHITE),
+        );
+    });
+}
+
+fn presets(ui: &mut egui::Ui, scale: f32, draft: &mut AmountDraft) {
+    let options: &[(&str, &str)] = match draft.kind {
+        TargetKind::Energy => &[
+            ("10 kWh", "10"),
+            ("20 kWh", "20"),
+            ("40 kWh", "40"),
+            ("60 kWh", "60"),
+        ],
+        TargetKind::Soc => &[("50%", "50"), ("80%", "80"), ("90%", "90"), ("100%", "100")],
+        TargetKind::Full => &[],
+    };
+    ui.horizontal(|ui| {
+        for (label, value) in options {
+            if ui
+                .add(egui::Button::new(*label).min_size(egui::vec2(80.0 * scale, 36.0 * scale)))
+                .clicked()
+            {
+                draft.amount = (*value).to_string();
+                draft.error = None;
+            }
+        }
+    });
+}
+
+fn speed_row(ui: &mut egui::Ui, scale: f32, draft: &mut AmountDraft) {
+    ui.horizontal(|ui| {
+        for speed in [ChargeSpeed::Slow, ChargeSpeed::Normal, ChargeSpeed::Fast] {
+            let selected = draft.speed == speed;
+            let fill = if selected {
+                egui::Color32::from_rgb(35, 140, 240)
+            } else {
+                egui::Color32::from_rgb(55, 60, 80)
+            };
+            if shadow_button(
+                ui,
+                speed.label(),
+                egui::vec2(110.0 * scale, 42.0 * scale),
+                fill,
+                egui::Color32::WHITE,
+                scale,
+                8.0,
+            )
+            .clicked()
+            {
+                draft.speed = speed;
+            }
+        }
+    });
+}
+
+fn nudge(draft: &mut AmountDraft, delta: f32) {
+    let current: f32 = draft.amount.trim().parse().unwrap_or(0.0);
+    let next = match draft.kind {
+        TargetKind::Energy => (current + delta).clamp(5.0, 200.0),
+        TargetKind::Soc => (current + delta).clamp(5.0, 100.0),
+        TargetKind::Full => current,
+    };
+    draft.amount = format!("{next:.0}");
+    draft.error = None;
+}
+
+fn step_of(kind: TargetKind) -> f32 {
+    match kind {
+        TargetKind::Energy | TargetKind::Soc => 5.0,
+        TargetKind::Full => 0.0,
     }
+}
 
-    pub fn reset_proceed_clicked(&mut self) {
-        self.proceed_clicked = false;
+fn unit(kind: TargetKind) -> &'static str {
+    match kind {
+        TargetKind::Energy => "kWh",
+        TargetKind::Soc => "%",
+        TargetKind::Full => "",
     }
+}
 
-    pub fn is_back_clicked(&self) -> bool {
-        self.app_bar.is_back_clicked()
-    }
+fn step_button(scale: f32, label: &str) -> egui::Button<'_> {
+    egui::Button::new(
+        egui::RichText::new(label)
+            .font(egui::FontId::proportional(22.0 * scale))
+            .color(egui::Color32::WHITE),
+    )
+    .min_size(egui::vec2(48.0 * scale, 48.0 * scale))
+}
 
-    pub fn reset_back_clicked(&mut self) {
-        self.app_bar.reset_back_clicked();
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    pub fn show(&mut self, ctx: &egui::Context) {
-        self.load_background_image(ctx);
-
-        let scale = calculate_scale(ctx);
-
-        show_top_bar(ctx, scale, None);
-
-       
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                self.app_bar.show(ui, scale);
-            });
-
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                let screen_rect = ui.max_rect();
-
-                // 배경 이미지 또는 색상
-                if let Some(ref texture) = self.background_image {
-                    ui.painter().image(
-                        texture.id(),
-                        screen_rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                } else {
-                    let bg_color = egui::Color32::from_rgba_premultiplied(25, 35, 55, 255);
-                    ui.painter().rect_filled(screen_rect, 0.0, bg_color);
-                }
-
-                ui.add_space(20.0 * scale);
-
-                // 제목
-                ui.vertical_centered(|ui| {
-                    ui.add_space(40.0 * scale);
-
-                    let title = match self.charge_type {
-                        ChargeType::SpecificWatts(_) => "Select Charging Amount (kW)",
-                        ChargeType::Percent(_) => "Select Target Battery Level (%)",
-                    };
-
-                    ui.add(egui::Label::new(
-                        egui::RichText::new(title)
-                            .font(egui::FontId::proportional(28.0 * scale))
-                            .color(egui::Color32::WHITE),
-                    ));
-
-                    ui.add_space(30.0 * scale);
-
-                    // 입력 필드
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(20.0 * scale, 0.0);
-
-                        // 숫자 입력 필드
-                        let input_width = 200.0 * scale;
-                        let input_height = 50.0 * scale;
-
-                        let text_edit = egui::TextEdit::singleline(&mut self.input_value)
-                            .font(egui::FontId::proportional(24.0 * scale))
-                            .desired_width(input_width)
-                            .desired_rows(1);
-
-                        let _response = ui.add_sized([input_width, input_height], text_edit);
-
-                        // 단위 표시
-                        let unit = match self.charge_type {
-                            ChargeType::SpecificWatts(_) => "kW",
-                            ChargeType::Percent(_) => "%",
-                        };
-
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(15.0 * scale);
-                            ui.add(egui::Label::new(
-                                egui::RichText::new(unit)
-                                    .font(egui::FontId::proportional(20.0 * scale))
-                                    .color(egui::Color32::WHITE),
-                            ));
-                        });
-                    });
-
-                    ui.add_space(40.0 * scale);
-
-                    // 미리 설정된 옵션들
-                    let preset_options = match self.charge_type {
-                        ChargeType::SpecificWatts(_) => vec![
-                            ("25 kW", "25"),
-                            ("50 kW", "50"),
-                            ("75 kW", "75"),
-                            ("100 kW", "100"),
-                        ],
-                        ChargeType::Percent(_) => vec![
-                            ("50%", "50"),
-                            ("80%", "80"),
-                            ("90%", "90"),
-                            ("100%", "100"),
-                        ],
-                    };
-
-                    ui.add(egui::Label::new(
-                        egui::RichText::new("Quick Select")
-                            .font(egui::FontId::proportional(18.0 * scale))
-                            .color(egui::Color32::from_gray(200)),
-                    ));
-
-                    ui.add_space(15.0 * scale);
-
-                    // 프리셋 버튼들
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(15.0 * scale, 0.0);
-
-                        for (label, value) in preset_options {
-                            let btn = egui::Button::new(
-                                egui::RichText::new(label)
-                                    .font(egui::FontId::proportional(16.0 * scale))
-                                    .color(egui::Color32::WHITE),
-                            )
-                            .min_size(egui::vec2(80.0 * scale, 40.0 * scale))
-                            .fill(egui::Color32::from_rgba_premultiplied(60, 60, 80, 255))
-                            .corner_radius(egui::CornerRadius::same(8));
-
-                            let resp = ui.add(btn);
-                            if resp.hovered() || resp.is_pointer_button_down_on() {
-                                let glow_rect = resp.rect.expand(4.0 * scale);
-                                let glow_shape = egui::epaint::RectShape::filled(
-                                    glow_rect,
-                                    egui::CornerRadius::same((8.0 * scale) as u8),
-                                    egui::Color32::from_rgba_premultiplied(100, 100, 120, 80),
-                                ).with_blur_width(8.0 * scale);
-                                ui.painter().add(glow_shape);
-                            }
-                            if resp.clicked() {
-                                self.input_value = value.to_string();
-                            }
-                        }
-                    });
-
-                    ui.add_space(50.0 * scale);
-
-                    // 진행 버튼
-                    let proceed_btn = egui::Button::new(
-                        egui::RichText::new("Proceed to Payment")
-                            .font(egui::FontId::proportional(18.0 * scale))
-                            .color(egui::Color32::WHITE),
-                    )
-                    .min_size(egui::vec2(250.0 * scale, 50.0 * scale))
-                    .fill(egui::Color32::from_rgb(20, 180, 120))
-                    .corner_radius(egui::CornerRadius::same(10));
-
-                    let resp_proceed = ui.add(proceed_btn);
-                    if resp_proceed.hovered() || resp_proceed.is_pointer_button_down_on() {
-                        let glow_rect = resp_proceed.rect.expand(8.0 * scale);
-                        let glow_shape = egui::epaint::RectShape::filled(
-                            glow_rect,
-                            egui::CornerRadius::same((12.0 * scale) as u8),
-                            egui::Color32::from_rgba_premultiplied(20, 180, 120, 80),
-                        ).with_blur_width(12.0 * scale);
-                        ui.painter().add(glow_shape);
-                    }
-                    if resp_proceed.clicked() {
-                        self.proceed_clicked = true;
-                    }
-
-                });
-            });
-
-        ctx.request_repaint_after(Duration::from_millis(16));
+    #[test]
+    fn parses_energy_soc_and_full() {
+        assert_eq!(
+            parse_target(TargetKind::Energy, "12.5").unwrap(),
+            ChargeTarget::Energy { kwh: 12.5 }
+        );
+        assert_eq!(
+            parse_target(TargetKind::Soc, "80").unwrap(),
+            ChargeTarget::Soc { percent: 80.0 }
+        );
+        assert_eq!(
+            parse_target(TargetKind::Full, "").unwrap(),
+            ChargeTarget::Full
+        );
+        assert!(parse_target(TargetKind::Energy, "0").is_err());
+        assert!(parse_target(TargetKind::Soc, "120").is_err());
+        assert!(parse_target(TargetKind::Energy, "kwh").is_err());
     }
 }

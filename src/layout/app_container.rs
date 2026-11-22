@@ -9,4 +9,3 @@ pub fn calculate_scale(ctx: &egui::Context) -> f32 {
     let base_h = 600.0;
     (vw / base_w).min(vh / base_h).clamp(0.6, 2.0)
 }
-

@@ -1,311 +1,197 @@
-use eframe::egui;
-use std::time::{Duration, Instant};
-use std::path::PathBuf;
-use crate::layout::top_bar::show_top_bar;
-use crate::layout::app_bar::AppBar;
-use crate::layout::app_container::calculate_scale;
-// use crate::layout::stepper::stepper;
-use crate::screen::select_amount_screen::ChargeType;
-use crate::screen::payment_screen::PaymentMethod;
+use std::time::Duration;
 
-pub struct ChargingScreen {
-    start_time: Instant,
-    charge_type: ChargeType,
-    charge_amount: f32,
-    payment_method: PaymentMethod,
-    current_battery_level: f32,
-    charging_power: f32,
-    estimated_time: Duration,
-    background_image_path: Option<PathBuf>,
-    background_image: Option<egui::TextureHandle>,
-    is_charging_complete: bool,
-    app_bar: AppBar,
+use eframe::egui;
+
+use crate::domain::{ChargeTarget, LiveCharge, Selection};
+use crate::layout::app_bar::show_app_bar;
+use crate::layout::app_container::calculate_scale;
+use crate::layout::shadow_button::shadow_button;
+use crate::layout::stepper::stepper;
+use crate::port::ChargerSnapshot;
+use crate::screen::standby_screen::panel_frame;
+
+pub enum ChargingAction {
+    None,
+    Stop,
+    Unplug,
+    Fault,
 }
 
-impl ChargingScreen {
-    pub fn new(charge_type: ChargeType, charge_amount: f32, payment_method: PaymentMethod) -> Self {
-        Self {
-            start_time: Instant::now(),
-            charge_type,
-            charge_amount,
-            payment_method,
-            current_battery_level: 0.0,
-            charging_power: 0.0,
-            estimated_time: Duration::from_secs(0),
-            background_image_path: None,
-            background_image: None,
-            is_charging_complete: false,
-            app_bar: AppBar::new("Charging in Progress").with_back_button(),
-        }
+pub fn show(
+    ctx: &egui::Context,
+    selection: Selection,
+    live: &LiveCharge,
+    snapshot: &ChargerSnapshot,
+    stopping: bool,
+) -> ChargingAction {
+    let scale = calculate_scale(ctx);
+    let mut action = ChargingAction::None;
+    let title = if stopping { "Stopping" } else { "Charging" };
+    if show_app_bar(ctx, scale, title, false) {
+        action = ChargingAction::Stop;
     }
 
-    pub fn with_background_image(mut self, image_path: PathBuf) -> Self {
-        self.background_image_path = Some(image_path);
-        self
-    }
-
-    fn load_background_image(&mut self, ctx: &egui::Context) {
-        if let Some(ref path) = self.background_image_path {
-            if self.background_image.is_none() {
-                if let Ok(image_data) = std::fs::read(path) {
-                    if let Ok(image) = image::load_from_memory(&image_data) {
-                        let rgba_image = image.to_rgba8();
-                        let size = [rgba_image.width() as usize, rgba_image.height() as usize];
-                        let pixels = rgba_image.into_raw();
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-                        self.background_image = Some(ctx.load_texture("charging_background", color_image, Default::default()));
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn update_charging(&mut self) {
-        let elapsed = self.start_time.elapsed();
-        
-        match self.charge_type {
-            ChargeType::SpecificWatts(target_watts) => {
-                // Specific watts charging simulation
-                let total_charge_time = Duration::from_secs_f32(target_watts * 6.0); // 6 seconds per 1kW
-                self.current_battery_level = (elapsed.as_secs_f32() / total_charge_time.as_secs_f32()).min(1.0);
-                self.charging_power = target_watts;
-                
-                if self.current_battery_level < 1.0 {
-                    let remaining_ratio = 1.0 - self.current_battery_level;
-                    self.estimated_time = Duration::from_secs_f32(remaining_ratio * total_charge_time.as_secs_f32());
-                } else {
-                    self.estimated_time = Duration::from_secs(0);
-                    self.is_charging_complete = true;
-                }
-            }
-            ChargeType::Percent(target_percent) => {
-                // Percent charging simulation
-                let total_charge_time = Duration::from_secs_f32(target_percent * 3.0); // 3 seconds per 1%
-                self.current_battery_level = (elapsed.as_secs_f32() / total_charge_time.as_secs_f32()).min(1.0);
-                self.charging_power = 50.0; // Fixed power
-                
-                if self.current_battery_level < 1.0 {
-                    let remaining_ratio = 1.0 - self.current_battery_level;
-                    self.estimated_time = Duration::from_secs_f32(remaining_ratio * total_charge_time.as_secs_f32());
-                } else {
-                    self.estimated_time = Duration::from_secs(0);
-                    self.is_charging_complete = true;
-                }
-            }
-        }
-    }
-
-    pub fn is_charging_complete(&self) -> bool {
-        self.is_charging_complete
-    }
-
-    pub fn is_back_clicked(&self) -> bool {
-        self.app_bar.is_back_clicked()
-    }
-
-    pub fn reset_back_clicked(&mut self) {
-        self.app_bar.reset_back_clicked();
-    }
-
-    pub fn show(&mut self, ctx: &egui::Context) {
-        self.update_charging();
-        self.load_background_image(ctx);
-
-        let scale = calculate_scale(ctx);
-
-        show_top_bar(ctx, scale, None);
-
-        // AppBar 표시
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                self.app_bar.show(ui, scale);
-            });
-
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                let screen_rect = ui.max_rect();
-
-                // 배경 이미지 또는 색상
-                if let Some(ref texture) = self.background_image {
-                    ui.painter().image(
-                        texture.id(),
-                        screen_rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                } else {
-                    let bg_color = egui::Color32::from_rgba_premultiplied(25, 35, 55, 255);
-                    ui.painter().rect_filled(screen_rect, 0.0, bg_color);
-                }
-
-                ui.add_space(20.0 * scale);
-
-                // 제목
-                ui.vertical_centered(|ui| {
-                    ui.add_space(30.0 * scale);
-
-                    let title = if self.is_charging_complete {
-                        "Charging Complete!"
-                    } else {
-                        "Charging in Progress"
-                    };
-
-                    ui.add(egui::Label::new(
-                        egui::RichText::new(title)
+    egui::CentralPanel::default()
+        .frame(panel_frame())
+        .show(ctx, |ui| {
+            ui.add_space(8.0 * scale);
+            stepper(
+                ui,
+                &["Amount", "Connect", "Payment", "Charge", "Done"],
+                3,
+                scale,
+            );
+            ui.add_space(16.0 * scale);
+            ui.vertical_centered(|ui| {
+                let fraction = progress_fraction(selection, live, snapshot);
+                bar(ui, scale, fraction);
+                ui.add_space(10.0 * scale);
+                if let Some(soc) = live.soc_percent {
+                    ui.label(
+                        egui::RichText::new(format!("{soc:.0}%"))
                             .font(egui::FontId::proportional(28.0 * scale))
                             .color(egui::Color32::WHITE),
-                    ));
-
-                    ui.add_space(20.0 * scale);
-
-                    // 배터리 프로그레스 바
-                    let progress_rect = egui::Rect::from_center_size(
-                        ui.available_rect_before_wrap().center(),
-                        egui::vec2(400.0 * scale, 25.0 * scale),
                     );
-
-                    // 배경 바
-                    ui.painter().rect_filled(
-                        progress_rect,
-                        egui::CornerRadius::same(12),
-                        egui::Color32::from_rgba_premultiplied(60, 60, 60, 255),
+                }
+                ui.add_space(12.0 * scale);
+                metric(
+                    ui,
+                    scale,
+                    "Delivered",
+                    &format!("{:.2} kWh", live.delivered_kwh),
+                );
+                metric(ui, scale, "Power", &format!("{:.1} kW", live.power_kw));
+                metric(
+                    ui,
+                    scale,
+                    "Meter",
+                    &format!("{:.0} V · {:.1} A", live.voltage_v, live.current_a),
+                );
+                metric(ui, scale, "Elapsed", &format_duration(live.elapsed));
+                metric(
+                    ui,
+                    scale,
+                    "Cost",
+                    &format!("{:.0} {}", live.cost, live.currency),
+                );
+                if let Some(eta) = eta(selection, live, snapshot) {
+                    metric(ui, scale, "Remaining", &format_duration(eta));
+                }
+                ui.add_space(16.0 * scale);
+                if !stopping
+                    && shadow_button(
+                        ui,
+                        "Stop charging",
+                        egui::vec2(240.0 * scale, 52.0 * scale),
+                        egui::Color32::from_rgb(180, 70, 70),
+                        egui::Color32::WHITE,
+                        scale,
+                        10.0,
+                    )
+                    .clicked()
+                {
+                    action = ChargingAction::Stop;
+                }
+                if !stopping {
+                    ui.add_space(12.0 * scale);
+                    ui.label(
+                        egui::RichText::new("Simulator")
+                            .font(egui::FontId::proportional(13.0 * scale))
+                            .color(egui::Color32::from_rgb(255, 196, 87)),
                     );
-
-                    // 프로그레스 바
-                    let progress_width = progress_rect.width() * self.current_battery_level;
-                    let progress_rect_filled = egui::Rect::from_min_size(
-                        progress_rect.min,
-                        egui::vec2(progress_width, progress_rect.height()),
-                    );
-
-                    let progress_color = if self.current_battery_level < 0.2 {
-                        egui::Color32::from_rgb(255, 100, 100) // 빨간색
-                    } else if self.current_battery_level < 0.5 {
-                        egui::Color32::from_rgb(255, 200, 100) // 주황색
-                    } else {
-                        egui::Color32::from_rgb(100, 255, 100) // 초록색
-                    };
-
-                    ui.painter().rect_filled(
-                        progress_rect_filled,
-                        egui::CornerRadius::same(12),
-                        progress_color,
-                    );
-
-                    // 프로그레스 바 테두리
-                    ui.painter().rect_stroke(
-                        progress_rect,
-                        egui::CornerRadius::same(12),
-                        egui::Stroke::new(2.0, egui::Color32::WHITE),
-                        egui::StrokeKind::Outside,
-                    );
-
-                    ui.add_space(20.0 * scale);
-
-                    // 배터리 레벨 텍스트
-                    ui.add(egui::Label::new(
-                        egui::RichText::new(format!("{:.1}%", self.current_battery_level * 100.0))
-                            .font(egui::FontId::proportional(24.0 * scale))
-                            .color(egui::Color32::WHITE),
-                    ));
-
-                    ui.add_space(30.0 * scale);
-
-                    // 충전 정보
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(40.0 * scale, 0.0);
-
-                        // 충전 전력
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::Label::new(
-                                egui::RichText::new("Charging Power")
-                                    .font(egui::FontId::proportional(16.0 * scale))
-                                    .color(egui::Color32::from_gray(200)),
-                            ));
-                            ui.add_space(5.0 * scale);
-                            ui.add(egui::Label::new(
-                                egui::RichText::new(format!("{:.1} kW", self.charging_power))
-                                    .font(egui::FontId::proportional(20.0 * scale))
-                                    .color(egui::Color32::WHITE),
-                            ));
-                        });
-
-                        // 남은 시간
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::Label::new(
-                                egui::RichText::new("Estimated Time")
-                                    .font(egui::FontId::proportional(16.0 * scale))
-                                    .color(egui::Color32::from_gray(200)),
-                            ));
-                            ui.add_space(5.0 * scale);
-                            let time_text = if self.estimated_time.as_secs() == 0 {
-                                if self.is_charging_complete {
-                                    "Complete!".to_string()
-                                } else {
-                                    "Calculating...".to_string()
-                                }
-                            } else {
-                                let minutes = self.estimated_time.as_secs() / 60;
-                                let seconds = self.estimated_time.as_secs() % 60;
-                                format!("{}:{}", minutes, format!("{:02}", seconds))
-                            };
-                            ui.add(egui::Label::new(
-                                egui::RichText::new(time_text)
-                                    .font(egui::FontId::proportional(20.0 * scale))
-                                    .color(egui::Color32::WHITE),
-                            ));
-                        });
+                        if small(ui, scale, "Unplug").clicked() {
+                            action = ChargingAction::Unplug;
+                        }
+                        if small(ui, scale, "Fault").clicked() {
+                            action = ChargingAction::Fault;
+                        }
                     });
-
-                    ui.add_space(30.0 * scale);
-
-                    // 결제 방법 표시
-                    let payment_text = match self.payment_method {
-                        PaymentMethod::CreditCard => "💳 Credit Card",
-                        PaymentMethod::MobileApp => "📱 Mobile App",
-                        PaymentMethod::RFID => "🔑 RFID Card",
-                        PaymentMethod::Membership => "🎫 Membership",
-                    };
-
-                    ui.add(egui::Label::new(
-                        egui::RichText::new(format!("Payment: {}", payment_text))
-                            .font(egui::FontId::proportional(16.0 * scale))
-                            .color(egui::Color32::from_gray(200)),
-                    ));
-
-                    ui.add_space(40.0 * scale);
-
-                    // 완료 버튼 (충전이 완료되었을 때만 표시)
-                    if self.is_charging_complete {
-                        let complete_btn = egui::Button::new(
-                            egui::RichText::new("View Summary")
-                                .font(egui::FontId::proportional(18.0 * scale))
-                                .color(egui::Color32::WHITE),
-                        )
-                        .min_size(egui::vec2(200.0 * scale, 50.0 * scale))
-                        .fill(egui::Color32::from_rgb(20, 180, 120))
-                        .corner_radius(egui::CornerRadius::same(10));
-
-                        let resp_complete = ui.add(complete_btn);
-                        if resp_complete.hovered() || resp_complete.is_pointer_button_down_on() {
-                            let glow_rect = resp_complete.rect.expand(8.0 * scale);
-                            let glow_shape = egui::epaint::RectShape::filled(
-                                glow_rect,
-                                egui::CornerRadius::same((12.0 * scale) as u8),
-                                egui::Color32::from_rgba_premultiplied(20, 180, 120, 80),
-                            ).with_blur_width(12.0 * scale);
-                            ui.painter().add(glow_shape);
-                        }
-                        if resp_complete.clicked() {
-                            println!("Proceed to completion summary");
-                        }
-                    }
-
-                });
+                }
             });
+        });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+    action
+}
+
+fn progress_fraction(selection: Selection, live: &LiveCharge, snapshot: &ChargerSnapshot) -> f32 {
+    match selection.target {
+        ChargeTarget::Energy { kwh } if kwh > 0.0 => {
+            (live.delivered_kwh as f32 / kwh).clamp(0.0, 1.0)
+        }
+        ChargeTarget::Soc { percent } if percent > 0.0 => {
+            live.soc_percent.unwrap_or(0.0).clamp(0.0, percent) / percent
+        }
+        ChargeTarget::Full => live.soc_percent.unwrap_or(0.0) / 100.0,
+        _ => snapshot.vehicle_soc_percent.unwrap_or(0.0) / 100.0,
     }
+}
+
+fn eta(selection: Selection, live: &LiveCharge, snapshot: &ChargerSnapshot) -> Option<Duration> {
+    if live.power_kw < 0.2 {
+        return None;
+    }
+    let hours = match selection.target {
+        ChargeTarget::Energy { kwh } => {
+            (f64::from(kwh) - live.delivered_kwh).max(0.0) / f64::from(live.power_kw)
+        }
+        ChargeTarget::Soc { percent } => {
+            let capacity = snapshot.battery_capacity_kwh?;
+            let soc = live.soc_percent?;
+            f64::from((percent - soc).max(0.0) / 100.0 * capacity) / f64::from(live.power_kw)
+        }
+        ChargeTarget::Full => {
+            let capacity = snapshot.battery_capacity_kwh?;
+            let soc = live.soc_percent?;
+            f64::from((100.0 - soc).max(0.0) / 100.0 * capacity) / f64::from(live.power_kw)
+        }
+    };
+    if !hours.is_finite() {
+        return None;
+    }
+    Some(Duration::from_secs_f64(hours * 3600.0))
+}
+
+fn bar(ui: &mut egui::Ui, scale: f32, fraction: f32) {
+    let width = 420.0 * scale;
+    let height = 22.0 * scale;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    ui.painter().rect_filled(
+        rect,
+        egui::CornerRadius::same(8),
+        egui::Color32::from_rgb(50, 55, 70),
+    );
+    let mut filled = rect;
+    filled.max.x = rect.min.x + rect.width() * fraction.clamp(0.0, 1.0);
+    ui.painter().rect_filled(
+        filled,
+        egui::CornerRadius::same(8),
+        egui::Color32::from_rgb(80, 200, 130),
+    );
+}
+
+fn metric(ui: &mut egui::Ui, scale: f32, label: &str, value: &str) {
+    ui.add_space(4.0 * scale);
+    ui.label(
+        egui::RichText::new(format!("{label}: {value}"))
+            .font(egui::FontId::proportional(18.0 * scale))
+            .color(egui::Color32::WHITE),
+    );
+}
+
+fn small(ui: &mut egui::Ui, scale: f32, label: &str) -> egui::Response {
+    shadow_button(
+        ui,
+        label,
+        egui::vec2(140.0 * scale, 40.0 * scale),
+        egui::Color32::from_rgb(55, 60, 80),
+        egui::Color32::WHITE,
+        scale,
+        8.0,
+    )
+}
+
+pub fn format_duration(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    format!("{}:{:02}", seconds / 60, seconds % 60)
 }

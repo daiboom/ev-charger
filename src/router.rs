@@ -1,339 +1,253 @@
+use std::time::{Duration, Instant};
+
 use eframe::egui;
-use std::path::PathBuf;
-use std::time::Duration;
-use crate::screen::{
-    SplashScreen, ConnectScreen, StandbyScreen, FullChargeScreen,
-    SelectAmountScreen, PaymentScreen, ChargingScreen, CompleteScreen,
-    ChargeType, PaymentMethod
-};
+use tracing::info;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum AppState {
-    Splash,
-    Connect(ChargeType),
-    Standby,
-    FullCharge,
-    SelectAmount(ChargeType),
-    Payment(ChargeType, f32),
-    Charging(ChargeType, f32, PaymentMethod),
-    Complete(ChargeType, f32, PaymentMethod, f32, Duration),
-}
-
-// Navigation stack for maintaining screen history
-pub type NavigationStack = Vec<AppState>;
+use crate::domain::{ChargeSession, PaymentMethod, Phase, SessionConfig};
+use crate::layout::app_container::calculate_scale;
+use crate::layout::top_bar::show_top_bar;
+use crate::port::ContactorCommand;
+use crate::screen::charging_screen::{self, ChargingAction};
+use crate::screen::complete_screen;
+use crate::screen::connect_screen;
+use crate::screen::fault_screen::{self, FaultAction};
+use crate::screen::payment_screen::{self, PaymentAction, PaymentView};
+use crate::screen::select_amount_screen::{self, AmountDraft, SelectAction};
+use crate::screen::splash_screen::SplashScreen;
+use crate::screen::standby_screen;
+use crate::sim::{FakePayment, Simulator};
 
 pub struct Router {
-    pub state: AppState,
-    pub navigation_stack: NavigationStack,  // Screen history stack
-    pub splash_screen: SplashScreen,
-    pub connect_screen: ConnectScreen,
-    pub standby_screen: StandbyScreen,
-    pub full_charge_screen: FullChargeScreen,
-    pub select_amount_screen: Option<SelectAmountScreen>,
-    pub payment_screen: Option<PaymentScreen>,
-    pub charging_screen: Option<ChargingScreen>,
-    pub complete_screen: Option<CompleteScreen>,
+    session: ChargeSession<Simulator, FakePayment>,
+    splash: SplashScreen,
+    show_splash: bool,
+    last_tick: Instant,
+    draft: Option<AmountDraft>,
+    selected_method: Option<PaymentMethod>,
 }
 
 impl Router {
     pub fn new() -> Self {
-        // Background image path setup (optional)
-        let splash_bg_path = std::path::PathBuf::from("assets/images/splash_bg.jpg");
-        let connect_bg_path = std::path::PathBuf::from("assets/images/connect_bg.jpg");
-        let standby_bg_path = std::path::PathBuf::from("assets/images/standby_bg.jpg");
-        let full_charge_bg_path = std::path::PathBuf::from("assets/images/full_charge_bg.jpg");
-        
+        let config = SessionConfig::simulator_defaults();
+        let payment = FakePayment::new(config.payment_approval_delay);
+        let session = ChargeSession::new(config, Simulator::new(), payment);
         Self {
-            state: AppState::Splash,
-            navigation_stack: vec![AppState::Splash],  // Initialize with splash screen
-            splash_screen: if splash_bg_path.exists() {
-                SplashScreen::new().with_background_image(splash_bg_path)
-            } else {
-                SplashScreen::new()
-            },
-            connect_screen: if connect_bg_path.exists() {
-                ConnectScreen::new().with_background_image(connect_bg_path)
-            } else {
-                ConnectScreen::new()
-            },
-            standby_screen: if standby_bg_path.exists() {
-                StandbyScreen::new().with_background_image(standby_bg_path)
-            } else {
-                StandbyScreen::new()
-            },
-            full_charge_screen: if full_charge_bg_path.exists() {
-                FullChargeScreen::new().with_background_image(full_charge_bg_path)
-            } else {
-                FullChargeScreen::new()
-            },
-            select_amount_screen: None,
-            payment_screen: None,
-            charging_screen: None,
-            complete_screen: None,
+            session,
+            splash: load_splash(),
+            show_splash: true,
+            last_tick: Instant::now(),
+            draft: None,
+            selected_method: None,
         }
-    }
-
-    // Navigation stack management methods
-    pub fn push_screen(&mut self, new_state: AppState) {
-        // Don't push if it's the same as current state
-        if self.state != new_state {
-            self.navigation_stack.push(self.state.clone());
-            self.state = new_state;
-        }
-    }
-
-    pub fn pop_screen(&mut self) -> Option<AppState> {
-        if self.navigation_stack.len() > 1 {
-            let previous_state = self.navigation_stack.pop();
-            if let Some(prev_state) = previous_state {
-                self.state = prev_state;
-                return Some(self.state.clone());
-            }
-        }
-        None
-    }
-
-    pub fn can_go_back(&self) -> bool {
-        self.navigation_stack.len() > 1
-    }
-
-    pub fn get_navigation_stack(&self) -> &NavigationStack {
-        &self.navigation_stack
     }
 
     pub fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let current_state = self.state.clone();
-        match current_state {
-            AppState::Splash => {
-                self.splash_screen.show(ctx);
-                
-                // Transition to connect screen when splash finishes
-                if self.splash_screen.is_finished() {
-                    self.push_screen(AppState::Connect(ChargeType::SpecificWatts(0.0)));
+        if self.show_splash {
+            self.splash.show(ctx);
+            if self.splash.is_finished() {
+                self.show_splash = false;
+                self.last_tick = Instant::now();
+                info!("splash finished");
+            }
+            ctx.request_repaint_after(Duration::from_millis(16));
+            return;
+        }
+
+        let mut dt = self.last_tick.elapsed();
+        self.last_tick = Instant::now();
+        if dt > Duration::from_millis(250) {
+            dt = Duration::from_millis(250);
+        }
+        self.session.tick(dt);
+
+        if !matches!(self.session.phase(), Phase::AwaitingPayment) {
+            self.selected_method = None;
+        }
+
+        let scale = calculate_scale(ctx);
+        show_top_bar(ctx, scale, &self.status_line());
+
+        if self.draft.is_some() && matches!(self.session.phase(), Phase::Standby) {
+            self.show_draft(ctx);
+        } else {
+            self.draft = None;
+            self.show_phase(ctx);
+        }
+
+        ctx.request_repaint_after(self.repaint_after());
+    }
+
+    fn show_draft(&mut self, ctx: &egui::Context) {
+        let action = {
+            let draft = self
+                .draft
+                .as_mut()
+                .expect("draft is shown only when it exists");
+            select_amount_screen::show(ctx, draft)
+        };
+        match action {
+            SelectAction::None => {}
+            SelectAction::Back => self.draft = None,
+            SelectAction::Proceed(target, speed) => match self.session.select(target, speed) {
+                Ok(()) => self.draft = None,
+                Err(error) => {
+                    if let Some(draft) = self.draft.as_mut() {
+                        draft.error = Some(error.to_string());
+                    }
+                }
+            },
+        }
+    }
+
+    fn show_phase(&mut self, ctx: &egui::Context) {
+        let phase = self.session.phase().clone();
+        match phase {
+            Phase::Standby => {
+                if let Some(kind) = standby_screen::show(ctx) {
+                    self.draft = Some(AmountDraft::new(kind));
                 }
             }
-            AppState::Connect(_charge_type) => {
-                self.connect_screen.show(ctx);
-                
-                // Transition to standby screen when connection is complete
-                if self.connect_screen.is_connection_complete() {
-                    self.push_screen(AppState::Standby);
+            Phase::WaitingForConnection => {
+                let snapshot = self.session.snapshot();
+                let actions = connect_screen::show(ctx, &snapshot);
+                if actions.back {
+                    self.session.request_stop();
+                }
+                self.apply_simulator(
+                    actions.plug,
+                    actions.ready,
+                    actions.unplug,
+                    actions.fault,
+                    actions.clear_fault,
+                );
+            }
+            Phase::AwaitingPayment => {
+                let selection = self.session.selection();
+                let Some(selection) = selection else {
+                    self.session.request_stop();
+                    return;
+                };
+                let estimate = self.session.estimate_cost();
+                let currency = self.session.config().currency.clone();
+                let status = self.session.payment_status();
+                let action = payment_screen::show(
+                    ctx,
+                    PaymentView {
+                        selection,
+                        estimate,
+                        currency: &currency,
+                        selected: self.selected_method,
+                        status,
+                    },
+                );
+                match action {
+                    PaymentAction::None => {}
+                    PaymentAction::Back => self.session.request_stop(),
+                    PaymentAction::Choose(method) => self.selected_method = Some(method),
+                    PaymentAction::Start(method) => {
+                        self.selected_method = Some(method);
+                        if let Err(error) = self.session.choose_payment(method) {
+                            info!(%error, "payment was not accepted");
+                        }
+                    }
                 }
             }
-            AppState::Standby => {
-                self.standby_screen.show(ctx);
-                
-                // Transition to full charge screen when full charge button is clicked
-                if self.standby_screen.is_full_charge_clicked() {
-                    self.standby_screen.reset_full_charge_clicked();
-                    self.push_screen(AppState::FullCharge);
-                }
-                 
-                // Transition to connect screen when specific watts charge button is clicked
-                if self.standby_screen.is_specific_watts_clicked() {
-                    self.standby_screen.reset_specific_watts_clicked();
-                    self.push_screen(AppState::Connect(ChargeType::SpecificWatts(0.0)));
-                }
-                 
-                // Transition to connect screen when percent charge button is clicked
-                if self.standby_screen.is_percent_clicked() {
-                    self.standby_screen.reset_percent_clicked();
-                    self.push_screen(AppState::Connect(ChargeType::Percent(0.0)));
+            Phase::Charging | Phase::Stopping { .. } => {
+                let stopping = matches!(self.session.phase(), Phase::Stopping { .. });
+                let selection = self.session.selection();
+                let live = self.session.live_charge();
+                let snapshot = self.session.snapshot();
+                let (Some(selection), Some(live)) = (selection, live) else {
+                    return;
+                };
+                match charging_screen::show(ctx, selection, &live, &snapshot, stopping) {
+                    ChargingAction::None => {}
+                    ChargingAction::Stop => self.session.request_stop(),
+                    ChargingAction::Unplug => self.session.charger_mut().unplug(),
+                    ChargingAction::Fault => self.session.charger_mut().inject_fault(),
                 }
             }
-            AppState::FullCharge => {
-                self.full_charge_screen.show(ctx);
-                
-                // Return to previous screen when back button is clicked
-                if self.full_charge_screen.is_back_clicked() {
-                    self.full_charge_screen.reset_back_clicked();
-                    self.pop_screen();
-                }
-                
-                // Return to standby screen when charging is complete
-                if self.full_charge_screen.is_charging_complete() {
-                    self.state = AppState::Standby;
+            Phase::Complete => {
+                let summary = self
+                    .session
+                    .summary()
+                    .expect("complete phase keeps a summary")
+                    .clone();
+                if complete_screen::show(ctx, &summary) {
+                    self.session.acknowledge();
                 }
             }
-            AppState::SelectAmount(charge_type) => {
-                let mut should_proceed = false;
-                let mut should_go_back = false;
-                let mut proceed_amount = 0.0;
-                
-                if let Some(ref mut screen) = self.select_amount_screen {
-                    screen.show(ctx);
-                    
-                    if screen.is_proceed_clicked() {
-                        screen.reset_proceed_clicked();
-                        proceed_amount = screen.get_input_value();
-                        should_proceed = true;
-                    }
-                    
-                    if screen.is_back_clicked() {
-                        screen.reset_back_clicked();
-                        should_go_back = true;
-                    }
-                }
-                
-                if should_proceed {
-                    self.push_screen(AppState::Payment(charge_type.clone(), proceed_amount));
-                }
-                if should_go_back {
-                    self.pop_screen();
-                }
-            }
-            AppState::Payment(charge_type, amount) => {
-                let mut should_proceed = false;
-                let mut should_go_back = false;
-                let mut proceed_payment_method = None;
-                
-                if let Some(ref mut screen) = self.payment_screen {
-                    screen.show(ctx);
-                    
-                    if screen.is_proceed_clicked() {
-                        screen.reset_proceed_clicked();
-                        proceed_payment_method = screen.get_selected_payment();
-                        should_proceed = true;
-                    }
-                    
-                    if screen.is_back_clicked() {
-                        screen.reset_back_clicked();
-                        should_go_back = true;
-                    }
-                }
-                
-                if should_proceed {
-                    if let Some(payment_method) = proceed_payment_method {
-                        self.push_screen(AppState::Charging(charge_type.clone(), amount, payment_method));
-                    }
-                }
-                if should_go_back {
-                    self.pop_screen();
-                }
-            }
-            AppState::Charging(charge_type, amount, payment_method) => {
-                let mut should_complete = false;
-                let mut should_go_back = false;
-                
-                if let Some(ref mut screen) = self.charging_screen {
-                    screen.show(ctx);
-                    
-                    if screen.is_charging_complete() {
-                        should_complete = true;
-                    }
-                    
-                    if screen.is_back_clicked() {
-                        screen.reset_back_clicked();
-                        should_go_back = true;
-                    }
-                }
-                
-                if should_complete {
-                    // Transition to complete screen when charging is finished
-                    let total_cost = match charge_type {
-                        ChargeType::SpecificWatts(watts) => watts * 0.2,
-                        ChargeType::Percent(percent) => percent * 0.1,
-                    };
-                    let charging_duration = Duration::from_secs(300); // 5 minute simulation
-                    self.push_screen(AppState::Complete(
-                        charge_type.clone(),
-                        amount,
-                        payment_method.clone(),
-                        total_cost,
-                        charging_duration,
-                    ));
-                }
-                if should_go_back {
-                    self.pop_screen();
-                }
-            }
-            AppState::Complete(_, _, _, _, _) => {
-                if let Some(ref mut screen) = self.complete_screen {
-                    screen.show(ctx);
-                    
-                    if screen.is_return_home_clicked() {
-                        screen.reset_return_home_clicked();
-                        // Clear the navigation stack and go to standby
-                        self.navigation_stack.clear();
-                        self.navigation_stack.push(AppState::Standby);
-                        self.state = AppState::Standby;
-                    }
+            Phase::Fault {
+                message,
+                delivered_kwh,
+                cost,
+            } => {
+                let currency = self.session.config().currency.clone();
+                match fault_screen::show(ctx, &message, delivered_kwh, cost, &currency) {
+                    FaultAction::None => {}
+                    FaultAction::Acknowledge => self.session.acknowledge(),
+                    FaultAction::ClearFault => self.session.charger_mut().clear_fault(),
                 }
             }
         }
     }
 
-    // Helper methods for screen transitions
-    pub fn go_to_standby(&mut self) {
-        self.state = AppState::Standby;
+    fn apply_simulator(&mut self, plug: bool, ready: bool, unplug: bool, fault: bool, clear: bool) {
+        let charger = self.session.charger_mut();
+        if clear {
+            charger.clear_fault();
+        }
+        if plug {
+            charger.plug_in();
+        }
+        if ready {
+            charger.make_ready();
+        }
+        if unplug {
+            charger.unplug();
+        }
+        if fault {
+            charger.inject_fault();
+        }
     }
 
-    pub fn go_to_full_charge(&mut self) {
-        self.state = AppState::FullCharge;
+    fn status_line(&self) -> String {
+        let phase = match self.session.phase() {
+            Phase::Standby => "Standby",
+            Phase::WaitingForConnection => "Waiting for vehicle",
+            Phase::AwaitingPayment => "Payment",
+            Phase::Charging => "Charging",
+            Phase::Stopping { .. } => "Stopping",
+            Phase::Complete => "Complete",
+            Phase::Fault { .. } => "Fault",
+        };
+        let contactor = match self.session.snapshot().contactor {
+            ContactorCommand::Open => "contactor open",
+            ContactorCommand::Closed => "contactor closed",
+        };
+        format!(
+            "SIMULATOR {:.0}x · {phase} · {contactor} · {:.0} {}/kWh",
+            self.session.charger().time_scale(),
+            self.session.config().tariff_per_kwh,
+            self.session.config().currency
+        )
     }
 
-    pub fn go_to_splash(&mut self) {
-        self.state = AppState::Splash;
-    }
-
-    pub fn go_to_select_amount(&mut self, charge_type: ChargeType) {
-        let bg_path = std::path::PathBuf::from("assets/images/select_amount_bg.jpg");
-        self.select_amount_screen = Some(
-            if bg_path.exists() {
-                SelectAmountScreen::new(charge_type.clone()).with_background_image(bg_path)
-            } else {
-                SelectAmountScreen::new(charge_type.clone())
+    fn repaint_after(&self) -> Duration {
+        match self.session.phase() {
+            Phase::Charging | Phase::Stopping { .. } | Phase::AwaitingPayment => {
+                Duration::from_millis(100)
             }
-        );
-        self.state = AppState::SelectAmount(charge_type);
+            _ => Duration::from_millis(250),
+        }
     }
+}
 
-    pub fn go_to_payment(&mut self, charge_type: ChargeType, amount: f32) {
-        let bg_path = std::path::PathBuf::from("assets/images/payment_bg.jpg");
-        self.payment_screen = Some(
-            if bg_path.exists() {
-                PaymentScreen::new(charge_type.clone(), amount).with_background_image(bg_path)
-            } else {
-                PaymentScreen::new(charge_type.clone(), amount)
-            }
-        );
-        self.state = AppState::Payment(charge_type, amount);
-    }
-
-    pub fn go_to_charging(&mut self, charge_type: ChargeType, amount: f32, payment_method: PaymentMethod) {
-        let bg_path = std::path::PathBuf::from("assets/images/charging_bg.jpg");
-        self.charging_screen = Some(
-            if bg_path.exists() {
-                ChargingScreen::new(charge_type.clone(), amount, payment_method.clone()).with_background_image(bg_path)
-            } else {
-                ChargingScreen::new(charge_type.clone(), amount, payment_method.clone())
-            }
-        );
-        self.state = AppState::Charging(charge_type, amount, payment_method);
-    }
-
-    pub fn go_to_complete(&mut self, charge_type: ChargeType, amount: f32, payment_method: PaymentMethod, total_cost: f32, duration: Duration) {
-        let bg_path = std::path::PathBuf::from("assets/images/complete_bg.jpg");
-        self.complete_screen = Some(
-            if bg_path.exists() {
-                CompleteScreen::new(charge_type.clone(), amount, payment_method.clone(), total_cost, duration).with_background_image(bg_path)
-            } else {
-                CompleteScreen::new(charge_type.clone(), amount, payment_method.clone(), total_cost, duration)
-            }
-        );
-        self.state = AppState::Complete(charge_type, amount, payment_method, total_cost, duration);
-    }
-
-    // Current state check methods
-    pub fn is_splash(&self) -> bool {
-        matches!(self.state, AppState::Splash)
-    }
-
-    pub fn is_standby(&self) -> bool {
-        matches!(self.state, AppState::Standby)
-    }
-
-    pub fn is_full_charge(&self) -> bool {
-        matches!(self.state, AppState::FullCharge)
+fn load_splash() -> SplashScreen {
+    let path = std::path::PathBuf::from("assets/images/splash_bg.jpg");
+    if path.exists() {
+        SplashScreen::new().with_background_image(path)
+    } else {
+        SplashScreen::new()
     }
 }

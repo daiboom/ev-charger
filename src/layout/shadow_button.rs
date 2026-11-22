@@ -28,10 +28,12 @@ pub fn shadow_button(
         let mut rgba = [fill.r(), fill.g(), fill.b(), 0u8];
         // outer
         rgba[3] = 70;
-        let color_outer = egui::Color32::from_rgba_premultiplied(rgba[0], rgba[1], rgba[2], rgba[3]);
+        let color_outer =
+            egui::Color32::from_rgba_premultiplied(rgba[0], rgba[1], rgba[2], rgba[3]);
         // inner
         rgba[3] = 110;
-        let color_inner = egui::Color32::from_rgba_premultiplied(rgba[0], rgba[1], rgba[2], rgba[3]);
+        let color_inner =
+            egui::Color32::from_rgba_premultiplied(rgba[0], rgba[1], rgba[2], rgba[3]);
         let r = radius as u8;
         ui.painter().rect_filled(
             rect_outer,
@@ -47,5 +49,3 @@ pub fn shadow_button(
 
     resp
 }
-
-
